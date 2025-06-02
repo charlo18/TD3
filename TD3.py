@@ -4,24 +4,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+#verify if the computer have cuda
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Implementation of Twin Delayed Deep Deterministic Policy Gradients (TD3)
 # Paper: https://arxiv.org/abs/1802.09477
 
-
+#data for f and pi network
 class Actor(nn.Module):
 	def __init__(self, state_dim, action_dim, max_action):
 		super(Actor, self).__init__()
 
+		#layers
 		self.l1 = nn.Linear(state_dim, 256)
 		self.l2 = nn.Linear(256, 256)
 		self.l3 = nn.Linear(256, action_dim)
 		
 		self.max_action = max_action
 		
-
+	#applying relu on each layer and tanh to the last one and defining the max_action param
 	def forward(self, state):
 		a = F.relu(self.l1(state))
 		a = F.relu(self.l2(a))
@@ -32,6 +33,8 @@ class Critic(nn.Module):
 	def __init__(self, state_dim, action_dim):
 		super(Critic, self).__init__()
 
+		#the td3 algo have 2 critics
+		#all layers have(256,256,1)
 		# Q1 architecture
 		self.l1 = nn.Linear(state_dim + action_dim, 256)
 		self.l2 = nn.Linear(256, 256)
@@ -55,7 +58,7 @@ class Critic(nn.Module):
 		q2 = self.l6(q2)
 		return q1, q2
 
-
+	#calculate only Q1
 	def Q1(self, state, action):
 		sa = torch.cat([state, action], 1)
 
@@ -78,14 +81,17 @@ class TD3(object):
 		policy_freq=2
 	):
 
+		#creating a freeze copy of the actor networks(f and pi) and attaching an Adam optimizer on the real actor
 		self.actor = Actor(state_dim, action_dim, max_action).to(device)
 		self.actor_target = copy.deepcopy(self.actor)
-		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+		self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=1e-4)#in the article its 1e-4
 
+		#creating a freeze copy of the critic network and attaching an Adam optimizer on the real critic
 		self.critic = Critic(state_dim, action_dim).to(device)
 		self.critic_target = copy.deepcopy(self.critic)
 		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
 
+		#setting hyperparameters
 		self.max_action = max_action
 		self.discount = discount
 		self.tau = tau
@@ -93,9 +99,15 @@ class TD3(object):
 		self.noise_clip = noise_clip
 		self.policy_freq = policy_freq
 
+		#to know when to update the actor networks(f and pi)
 		self.total_it = 0
 
-
+	"""
+	On prend l’état (par exemple un array Python ou NumPy) → on le passe en tenseur PyTorch de forme (1, state_dim) 
+	→ on fait la prédiction via self.actor → on ramène le résultat sur CPU → on convertit en NumPy
+	→ on a enfin un vecteur 1D d’actions utilisable en-dehors de PyTorch.
+	Le but est donc de fournir, pour un état donné, l’action calculée par l’Actor,
+	directement sous forme d’un array NumPy, prêt à être injecté dans l’environnement ou autre code Python."""
 	def select_action(self, state):
 		state = torch.FloatTensor(state.reshape(1, -1)).to(device)
 		return self.actor(state).cpu().data.numpy().flatten()
